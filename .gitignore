@@ -4,3 +4,4 @@ secrets/*
 !secrets/.gitkeep
 __pycache__/
 *.pyc
+Dockerfile.base
