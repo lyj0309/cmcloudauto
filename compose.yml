@@ -1,0 +1,47 @@
+services:
+  cmcloud:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      provenance: false
+      sbom: false
+    image: cmcloud-kasmvnc-wine:local
+    container_name: cmcloudauto
+    platform: linux/amd64
+    shm_size: "2gb"
+    security_opt:
+      - seccomp:unconfined
+    restart: unless-stopped
+    environment:
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+      TZ: "${TZ:-Asia/Shanghai}"
+      CUSTOM_USER: "${CUSTOM_USER:-cmcloud}"
+      PASSWORD: "${KASMVNC_PASSWORD:-cmcloud123456}"
+      TITLE: "${TITLE:-Ecloud Cloud Computer}"
+      AUTO_START_CMCLOUD: "${AUTO_START_CMCLOUD:-1}"
+      CMCLOUD_AUTO_LOGIN: "${CMCLOUD_AUTO_LOGIN:-1}"
+      CMCLOUD_AUTO_CONNECT: "${CMCLOUD_AUTO_CONNECT:-1}"
+      CMCLOUD_MACHINE_NAME: "${CMCLOUD_MACHINE_NAME:-}"
+      CMCLOUD_WINE_TZ: "${CMCLOUD_WINE_TZ:-UTC}"
+      CMCLOUD_DESKTOP_SIZE: "${CMCLOUD_DESKTOP_SIZE:-1180x540}"
+      CMCLOUD_USERNAME_FILE: /run/secrets/username
+      CMCLOUD_PASSWORD_FILE: /run/secrets/password
+      CMCLOUD_SOURCE_ZIP: /workspace/CloudComputer.zip
+      CMCLOUD_WINEDEBUG: "${CMCLOUD_WINEDEBUG:--all}"
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      GALLIUM_DRIVER: llvmpipe
+      MESA_LOADER_DRIVER_OVERRIDE: llvmpipe
+    ports:
+      - "127.0.0.1:${CMCLOUD_HTTP_PORT:-3040}:3000"
+      - "127.0.0.1:${CMCLOUD_HTTPS_PORT:-3041}:3001"
+    volumes:
+      - ./config:/config
+      - ./secrets:/run/secrets:ro
+      - ${CMCLOUD_PACKAGE_PATH:-../tdx-docker/CloudComputer.zip}:/workspace/CloudComputer.zip:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -u \"$${CUSTOM_USER}:$${PASSWORD}\" http://127.0.0.1:3000/ >/dev/null && pgrep -f 'Ecloud Cloud Computer Application.exe' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 5m
