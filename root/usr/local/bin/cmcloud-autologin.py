@@ -208,11 +208,24 @@ def main() -> int:
 
     machine_name = os.environ.get("CMCLOUD_MACHINE_NAME", "").strip()
     connect_timeout = int(os.environ.get("CMCLOUD_CONNECT_TIMEOUT", "300"))
+    attempt_wait = max(1, int(os.environ.get("CMCLOUD_MACHINE_ATTEMPT_SECONDS", "8")))
     connect_deadline = time.monotonic() + connect_timeout
     machine_name_json = json.dumps(machine_name, ensure_ascii=True)
-    connect_expression = f"""
+    attempted_names: set[str] = set()
+    page_state_expression = """
+      (() => ({
+        cardCount: [...document.querySelectorAll('.desktop-item .card-item')]
+          .filter(element => element.getBoundingClientRect().width > 0).length,
+        url: location.href,
+      }))()
+    """
+
+    while time.monotonic() < connect_deadline:
+        attempted_names_json = json.dumps(sorted(attempted_names), ensure_ascii=True)
+        connect_expression = f"""
       (() => {{
         const requestedName = {machine_name_json};
+        const attemptedNames = new Set({attempted_names_json});
         const visible = element => {{
           const style = getComputedStyle(element);
           const rect = element.getBoundingClientRect();
@@ -221,19 +234,19 @@ def main() -> int:
         const enterCommands = [...document.querySelectorAll('.enterImg.active')].filter(visible);
         const cards = [...document.querySelectorAll('.desktop-item .card-item')].filter(visible);
         let candidate = null;
-        if (!requestedName && enterCommands.length >= 1) {{
-          // The Electron list can keep a hidden clone while refreshing; the first
-          // visible enter control is sufficient for the requested best-effort click.
-          candidate = enterCommands[0];
-        }} else if (requestedName) {{
+        let candidateName = requestedName;
+        if (requestedName) {{
           candidate = cards.find(card =>
             card.querySelector('.machine-name')?.textContent.trim() === requestedName
           );
-        }} else if (cards.length === 1) {{
-          candidate = cards[0];
         }} else {{
-          candidate = document.querySelector('.desktop-item.active .card-item, .desktop-item .card-item.selected');
-          if (candidate && !visible(candidate)) candidate = null;
+          const available = cards.filter(card => {{
+            const name = card.querySelector('.machine-name')?.textContent.trim() || '';
+            return !attemptedNames.has(name);
+          }});
+          candidate = available[0] || null;
+          candidateName = candidate?.querySelector('.machine-name')?.textContent.trim() || '';
+          if (!candidate && enterCommands.length) candidate = enterCommands[0];
         }}
 
         if (!candidate) {{
@@ -245,27 +258,40 @@ def main() -> int:
         }}
 
         if (!candidate) return {{ok: false, cardCount: cards.length, url: location.href}};
-        candidate.click();
-        return {{ok: true, url: location.href}};
+        const button = candidate.matches('.enterImg.active')
+          ? candidate : candidate.querySelector('.enterImg.active');
+        (button || candidate).click();
+        return {{ok: true, name: candidateName, url: location.href}};
       }})()
     """
-
-    while time.monotonic() < connect_deadline:
         try:
             for candidate in list_targets(port):
                 if candidate.get("type") != "page" or not candidate.get("webSocketDebuggerUrl"):
                     continue
                 result = evaluate_target(candidate, port, connect_expression)
                 if result.get("ok"):
-                    suffix = f" named {machine_name!r}" if machine_name else ""
-                    log(f"clicked the cloud computer connection{suffix}")
-                    return 0
+                    selected_name = result.get("name") or machine_name or "unnamed"
+                    attempted_names.add(selected_name)
+                    log(f"clicked cloud computer connection: {selected_name}")
+                    if machine_name:
+                        return 0
+                    time.sleep(attempt_wait)
+                    state = evaluate_target(candidate, port, page_state_expression)
+                    if not state.get("cardCount"):
+                        log(f"cloud computer page left the device list after selecting {selected_name}")
+                        return 0
+                    log(f"connection to {selected_name} did not leave the device list; trying the next computer")
+                    break
+            else:
+                time.sleep(2)
+                continue
+            if machine_name:
+                break
         except (OSError, ValueError, websocket.WebSocketException):
-            pass
-        time.sleep(2)
+            time.sleep(2)
 
-    log(f"no unambiguous cloud computer connection appeared within {connect_timeout}s")
-    return 1
+    log("no cloud computer connection was confirmed; traversal finished (best effort)")
+    return 0
 
 
 if __name__ == "__main__":

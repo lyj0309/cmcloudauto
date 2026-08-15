@@ -48,7 +48,7 @@ button.input31
 
 账号密码仅从 `/run/secrets/username` 和 `/run/secrets/password` 读取，不写入镜像或日志。删除/清空任一 secret，或在 `.env` 设置 `CMCLOUD_AUTO_LOGIN=0`，即可关闭自动登录。
 
-登录成功后脚本会点击设备列表中的可见“进入”控件；存在多个云电脑时，在 `.env` 设置 `CMCLOUD_MACHINE_NAME=设备显示名称` 可指定设备，否则采用第一个可见控件。设置 `CMCLOUD_AUTO_CONNECT=0` 可只登录不连接。点击动作完成即视为自动化成功，后续 Windows 云桌面会话是否真正建立不作为脚本成功条件。
+登录成功后脚本会处理设备列表中的可见“进入”控件。只有一台时直接连接；存在多台且未设置名称时，会按列表顺序逐台尝试，每台等待 `CMCLOUD_MACHINE_ATTEMPT_SECONDS` 秒，页面仍在设备列表就继续下一台。设置 `CMCLOUD_MACHINE_NAME=设备显示名称` 可只指定一台。设置 `CMCLOUD_AUTO_CONNECT=0` 可只登录不连接。遍历结束即视为 best-effort 自动化完成，后续 Windows 云桌面会话是否真正建立不作为脚本失败条件。
 
 Wine 子进程默认使用 `UTC`。这是为了避免 CMSS Qt 会话组件在 Wine 下把本地时区重复计入时间戳、进而以 `login timestamp is invalid` 拒绝连接；Kasm 桌面和容器日志仍使用 `TZ` 指定的时区。
 
