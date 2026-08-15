@@ -46,7 +46,7 @@ input.inputPwd
 button.input31
 ```
 
-账号密码仅从 `/run/secrets/username` 和 `/run/secrets/password` 读取，不写入镜像或日志。删除/清空任一 secret，或在 `.env` 设置 `CMCLOUD_AUTO_LOGIN=0`，即可关闭自动登录。
+账号密码默认从 `/run/secrets/username` 和 `/run/secrets/password` 读取，也可通过 `CMCLOUD_USERNAME` 和 `CMCLOUD_PASSWORD` 环境变量传入；环境变量优先级更高，但会在容器或云函数配置中明文可见。脚本不会把密码写入日志。删除/清空凭据，或设置 `CMCLOUD_AUTO_LOGIN=0`，即可关闭自动登录。
 
 登录成功后脚本会处理设备列表中的可见“进入”控件。只有一台时直接连接；存在多台且未设置名称时，会按列表顺序逐台尝试，每台等待 `CMCLOUD_MACHINE_ATTEMPT_SECONDS` 秒，页面仍在设备列表就继续下一台。设置 `CMCLOUD_MACHINE_NAME=设备显示名称` 可只指定一台。设置 `CMCLOUD_AUTO_CONNECT=0` 可只登录不连接。遍历结束即视为 best-effort 自动化完成，后续 Windows 云桌面会话是否真正建立不作为脚本失败条件。
 
@@ -63,5 +63,15 @@ tail -f config/logs/cmcloud-wine.log
 tail -f config/logs/autologin.log
 docker compose exec --user abc cmcloud /usr/local/bin/launch-cmcloud.sh
 ```
+
+## 函数计算入口
+
+函数计算模式使用独立的 HTTP 控制服务，监听 `9000` 端口：
+
+- `GET /health`：容器健康检查。
+- `GET /status`：返回当前运行状态。
+- `POST /run`：后台启动客户端、自动登录并遍历连接。
+
+设置 `CMCLOUD_FUNCTION_MODE=1` 后，容器冷启动不会同步初始化 Wine；首次调用 `/run` 时才开始后台任务。KasmVNC 的 `3000` 端口不是函数入口。
 
 注意：登录主界面能在 Wine 中启动，并不等于 Windows 云桌面会话一定可连接。H3C/CMSS 组件带 Windows 服务、驱动、USB/磁盘重定向和提权工具；Wine 不支持的内核驱动能力会被禁用，实际连接结果需要以运行测试为准。

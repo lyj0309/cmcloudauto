@@ -1,6 +1,10 @@
 #!/usr/bin/with-contenv bash
 set -Eeuo pipefail
 
+if [[ "${CMCLOUD_FUNCTION_MODE:-0}" == "1" ]]; then
+  exit 0
+fi
+
 /usr/local/bin/bootstrap-cmcloud-runtime.sh
 
 (

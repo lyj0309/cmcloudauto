@@ -15,7 +15,10 @@ def log(message: str) -> None:
     print(f"[cmcloud-autologin] {message}", flush=True)
 
 
-def read_secret(env_name: str, default_path: str) -> str:
+def read_secret(env_name: str, default_path: str, value_env_name: str) -> str:
+    value = os.environ.get(value_env_name, "").strip()
+    if value:
+        return value
     path = pathlib.Path(os.environ.get(env_name, default_path))
     try:
         return path.read_text(encoding="utf-8").strip()
@@ -94,8 +97,8 @@ def fill_credentials_target(target: dict, port: int, username: str, password: st
 
 
 def main() -> int:
-    username = read_secret("CMCLOUD_USERNAME_FILE", "/run/secrets/username")
-    password = read_secret("CMCLOUD_PASSWORD_FILE", "/run/secrets/password")
+    username = read_secret("CMCLOUD_USERNAME_FILE", "/run/secrets/username", "CMCLOUD_USERNAME")
+    password = read_secret("CMCLOUD_PASSWORD_FILE", "/run/secrets/password", "CMCLOUD_PASSWORD")
     if not username or not password:
         log("username/password secret is absent or empty; leaving the login window untouched")
         return 0
