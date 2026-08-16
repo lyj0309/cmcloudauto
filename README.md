@@ -70,8 +70,13 @@ docker compose exec --user abc cmcloud /usr/local/bin/launch-cmcloud.sh
 
 - `GET /health`：容器健康检查。
 - `GET /status`：返回当前运行状态。
+- `GET /diagnostics`：返回退出信号、进程状态以及经过凭据过滤的任务/Wine/自动登录日志尾部。
 - `POST /run`：后台启动客户端、自动登录并遍历连接。
 
 设置 `CMCLOUD_FUNCTION_MODE=1` 后，容器冷启动不会同步初始化 Wine；首次调用 `/run` 时才开始后台任务。KasmVNC 的 `3000` 端口不是函数入口。
 
 注意：登录主界面能在 Wine 中启动，并不等于 Windows 云桌面会话一定可连接。H3C/CMSS 组件带 Windows 服务、驱动、USB/磁盘重定向和提权工具；Wine 不支持的内核驱动能力会被禁用，实际连接结果需要以运行测试为准。
+
+在阿里云函数计算的实际测试中，32 位 Wine preloader 在初始化 Wine prefix 时调用
+`set_thread_area`，随后被 FC 沙箱以 `SIGSYS` 终止。因此当前 FC 环境无法完成
+`wineboot -i`，问题发生在图形应用启动之前，不是 HTTP 入口、Electron 页面或自动点击逻辑导致的。

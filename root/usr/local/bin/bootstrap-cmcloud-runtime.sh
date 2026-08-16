@@ -12,19 +12,33 @@ log() {
   printf '[cmcloud-bootstrap] %s\n' "$*"
 }
 
+trap 'status=$?; log "FAILED line=${LINENO} status=${status} command=${BASH_COMMAND}"; exit "$status"' ERR
+
 mkdir -p /config "$app_home" "$runtime_prefix" /config/logs
 
 if [[ ! -f "${runtime_prefix}/system.reg" ]]; then
   log "Initializing Wine prefix in ${runtime_prefix}"
   mkdir -p "$runtime_prefix"
-  xvfb-run -a env WINEPREFIX="$runtime_prefix" bash -c \
-    'wineboot -i && winetricks -q win10 && wineserver -w'
+  log "Starting wineboot/winetricks initialization"
+  if [[ "${CMCLOUD_TRACE_WINEBOOT:-0}" == "1" ]] && command -v strace >/dev/null; then
+    log "Tracing wineboot syscalls to /config/logs/wineboot.strace"
+    xvfb-run -a env WINEPREFIX="$runtime_prefix" bash -c \
+      'strace -f -s 256 -o /config/logs/wineboot.strace wineboot -i && winetricks -q win10 && wineserver -w'
+  else
+    if [[ "${CMCLOUD_TRACE_WINEBOOT:-0}" == "1" ]]; then
+      log "Wineboot tracing requested but strace is unavailable; running without tracing"
+    fi
+    xvfb-run -a env WINEPREFIX="$runtime_prefix" bash -c \
+      'wineboot -i && winetricks -q win10 && wineserver -w'
+  fi
+  log "Wine prefix initialization completed"
 fi
 
 if [[ ! -f "$fonts_stamp" ]]; then
   log "Configuring Chinese font replacements"
   CMCLOUD_WINEPREFIX="$runtime_prefix" /usr/local/bin/configure-wine-fonts.sh
   touch "$fonts_stamp"
+  log "Chinese font configuration completed"
 fi
 
 exe_path="${app_home}/Ecloud Cloud Computer Application.exe"
@@ -39,6 +53,7 @@ if [[ ! -f "$exe_path" ]]; then
   mkdir -p "$incoming"
   log "Extracting ${source_zip}; first startup can take several minutes"
   unzip -q "$source_zip" -d "$incoming"
+  log "Source archive extraction completed"
 
   extracted_root="$incoming"
   if [[ -f "${incoming}/CloudComputer/Ecloud Cloud Computer Application.exe" ]]; then

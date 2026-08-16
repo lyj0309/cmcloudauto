@@ -4,6 +4,7 @@
 import json
 import os
 import pathlib
+import signal
 import subprocess
 import threading
 import time
@@ -14,6 +15,56 @@ STATUS_FILE = pathlib.Path("/config/logs/cmcloud-api-status.json")
 LOG_DIR = pathlib.Path("/config/logs")
 job_lock = threading.Lock()
 job_process: subprocess.Popen | None = None
+
+
+def redact(text: str) -> str:
+    for name in ("CMCLOUD_USERNAME", "CMCLOUD_PASSWORD", "PASSWORD"):
+        value = os.environ.get(name, "")
+        if value:
+            text = text.replace(value, "<redacted>")
+    return text
+
+
+def tail_file(path: pathlib.Path, limit: int = 12000) -> str:
+    try:
+        with path.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            size = stream.tell()
+            stream.seek(max(0, size - limit))
+            data = stream.read()
+        return redact(data.decode("utf-8", errors="replace"))
+    except OSError:
+        return ""
+
+
+def process_snapshot(pid: int) -> dict:
+    snapshot: dict[str, object] = {"pid": pid}
+    try:
+        snapshot["cmdline"] = pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(
+            "utf-8", errors="replace"
+        ).strip()
+        status_lines = pathlib.Path(f"/proc/{pid}/status").read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines()
+        wanted = ("Name:", "State:", "Pid:", "PPid:", "Threads:", "Seccomp:", "Seccomp_filters:")
+        snapshot["status"] = {line.split(":", 1)[0]: line.split(":", 1)[1].strip()
+                              for line in status_lines if line.startswith(wanted)}
+    except OSError:
+        snapshot["exited"] = True
+    return snapshot
+
+
+def diagnostics() -> dict:
+    result = read_status()
+    if job_process is not None:
+        result["process"] = process_snapshot(job_process.pid)
+    result["logs"] = {
+        "job": tail_file(LOG_DIR / "function-job.log"),
+        "wine": tail_file(LOG_DIR / "cmcloud-wine.log"),
+        "autologin": tail_file(LOG_DIR / "autologin.log"),
+        "winebootStrace": tail_file(LOG_DIR / "wineboot.strace", limit=24000),
+    }
+    return result
 
 
 def write_status(state: str, detail: str = "") -> None:
@@ -52,7 +103,20 @@ def run_job() -> None:
             )
         write_status("running", f"pid={job_process.pid}")
         return_code = job_process.wait()
-    write_status("stopped", f"exitCode={return_code}")
+    if return_code < 0:
+        signal_number = -return_code
+        signal_name = signal.Signals(signal_number).name
+        detail = f"signal={signal_name}({signal_number})"
+    elif return_code >= 128:
+        signal_number = return_code - 128
+        try:
+            signal_name = signal.Signals(signal_number).name
+            detail = f"exitCode={return_code}, shellSignal={signal_name}({signal_number})"
+        except ValueError:
+            detail = f"exitCode={return_code}"
+    else:
+        detail = f"exitCode={return_code}"
+    write_status("stopped", detail)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -67,6 +131,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/health":
             self.send_json(200, {"ok": True})
+            return
+        if self.path == "/diagnostics":
+            self.send_json(200, diagnostics())
             return
         self.send_json(200, read_status())
 

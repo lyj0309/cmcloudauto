@@ -1,6 +1,10 @@
 #!/usr/bin/with-contenv bash
 set -Eeuo pipefail
 
+log_file="${CMCLOUD_WINE_LOG:-/config/logs/cmcloud-wine.log}"
+mkdir -p "$(dirname "$log_file")"
+trap 'status=$?; printf "[cmcloud-launch] FAILED line=%s status=%s command=%s\n" "$LINENO" "$status" "$BASH_COMMAND" >>"$log_file"; exit "$status"' ERR
+
 /usr/local/bin/bootstrap-cmcloud-runtime.sh
 
 state_file="${CMCLOUD_STATE_FILE:-/config/.cmcloud-runtime.env}"
@@ -8,7 +12,6 @@ state_file="${CMCLOUD_STATE_FILE:-/config/.cmcloud-runtime.env}"
 source "$state_file"
 
 app_dir="$(dirname "$CMCLOUD_EXECUTABLE")"
-log_file="${CMCLOUD_WINE_LOG:-/config/logs/cmcloud-wine.log}"
 debug_port="${CMCLOUD_DEBUG_PORT:-9222}"
 
 export WINEPREFIX="$CMCLOUD_WINEPREFIX"
